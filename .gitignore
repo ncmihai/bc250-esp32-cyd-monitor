@@ -1,0 +1,9 @@
+# your WiFi credentials: never commit these
+cyd_monitor/secrets.h
+
+# build output and OS junk
+build/
+*.bin
+*.elf
+.DS_Store
+__pycache__/

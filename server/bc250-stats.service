@@ -1,0 +1,17 @@
+[Unit]
+Description=BC-250 stats endpoint for the ESP32 display
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/python3 /opt/bc250-stats/bc250_stats.py --port 8250
+DynamicUser=yes
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
