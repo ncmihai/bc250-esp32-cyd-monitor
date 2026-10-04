@@ -20,7 +20,8 @@ static const char *RANGE_LBL[3] = {"1m", "10m", "1h"};
 static Store   cur, curX;   // UI-side copies of the latest data
 static HistSet curH;
 static bool gOnline = false;
-static bool gDebugOffline = false;   // debug: Serial 'o' pretends the BC250 is unreachable
+static bool gDebugOffline = false;
+static bool gDebugHost = false;      // debug: Serial 'h' shows a generic host name (for screenshots)   // debug: Serial 'o' pretends the BC250 is unreachable
 static int8_t gFrameState = -1;   // overheat frame: -1 unknown, 0 off, 1 on
 
 // alert state (gCritical lives in theme.h)
@@ -125,7 +126,7 @@ static void drawChrome() {
 static void drawHeaderDyn() {
   char b[40];
   const char *title = PAGE_TITLE[gPage];
-  if (gPage == PG_HOME) title = kvS(cur, "host")[0] ? kvS(cur, "host") : "BC250";
+  if (gPage == PG_HOME) title = gDebugHost ? "my-pc" : (kvS(cur, "host")[0] ? kvS(cur, "host") : "BC250");
   if (gCritical) snprintf(b, sizeof b, "OVERHEAT %s %.0fC", gHot, gHotT);
   else           strlcpy(b, title, sizeof b);
   int tx = gPage >= PG_CPU ? 26 : 10;
@@ -172,6 +173,24 @@ static void cacheClearRect(int x, int y, int w, int h) {
   }
 }
 
+// "VRAM" as MangoHud and the BC-250 overlay show it: the small dedicated slice plus GTT (system RAM the GPU uses).
+static float nz(float v) { return isnan(v) ? 0.0f : v; }
+static float gpuMemUsed()  { float a = V("gpu_vram_used"),  b = V("gpu_gtt_used");  return (isnan(a) && isnan(b)) ? NAN : nz(a) + nz(b); }
+static float gpuMemTotal() { float a = V("gpu_vram_total"), b = V("gpu_gtt_total"); return (isnan(a) && isnan(b)) ? NAN : nz(a) + nz(b); }
+
+// Two segments in one bar (dedicated VRAM, then GTT).
+static void stackBar(int x, int y, int w, int h, float aPct, float bPct, uint16_t ca, uint16_t cb, uint16_t track) {
+  int wa = isnan(aPct) ? 0 : constrain((int)(aPct * w / 100.0f + 0.5f), 0, w);
+  int wb = isnan(bPct) ? 0 : constrain((int)(bPct * w / 100.0f + 0.5f), 0, w - wa);
+  uint32_t key = posKey(x, y);
+  BCache &c = bcache[(x * 31 + y * 7) % NCACHE];
+  if (c.key == key && c.fill == wa && c.color == (uint16_t)wb) return;
+  c.key = key; c.fill = wa; c.color = (uint16_t)wb;
+  tft.fillRoundRect(x, y, w, h, h / 2, track);
+  if (wa + wb > 0) tft.fillRoundRect(x, y, max(wa + wb, h), h, h / 2, cb);
+  if (wa > 0) { tft.fillRoundRect(x, y, max(wa, h / 2 + 1), h, h / 2, ca); tft.fillRect(x + wa / 2, y, wa - wa / 2, h, ca); }
+}
+
 static void tileFrame(int i) {
   int x = TILE_X[i % 3], y = TILE_Y[i / 3];
   tft.fillRoundRect(x, y, TW, TH, 8, cardC);
@@ -183,14 +202,19 @@ static void tileLabel(int i, const char *s, uint16_t col, int w) {
   txt(F_LABEL, s, TILE_X[i % 3] + 9, TILE_Y[i / 3] + 17, w, AL_L, col, cardC);
 }
 
-static void tilePct(int i, float pct, int x0, int w) {
+// The percentage sits in the title row, right of the label: it starts where the (measured) label ends and drops
+// the % sign when even that would not fit.
+static void tilePct(int i, float pct) {
   char b[12];
-  txt(F_TEXT, num(b, sizeof b, pct, "%.0f%%"), TILE_X[i % 3] + x0, TILE_Y[i / 3] + 17, w, AL_R, TEXT, cardC);
+  num(b, sizeof b, pct, "%.0f%%");
+  int x0 = 9 + textW(F_LABEL, TILE_NAME[i]) + 6, w = 92 - x0;
+  if (textW(F_SMALL, b) > w) b[strlen(b) - 1] = 0;
+  txt(F_SMALL, b, TILE_X[i % 3] + x0, TILE_Y[i / 3] + 17, w, AL_R, TEXT, cardC);
 }
 
 static void drawHomeStatic() {
   for (int i = 0; i < 6; i++) tileFrame(i);
-  for (int i = 0; i < 5; i++) tileLabel(i, TILE_NAME[i], ACC[TILE_ACC[i]], i == 2 ? 84 : 44);
+  for (int i = 0; i < 5; i++) tileLabel(i, TILE_NAME[i], ACC[TILE_ACC[i]], i == 2 ? 84 : textW(F_LABEL, TILE_NAME[i]) + 2);
 }
 
 static void updateHome() {
@@ -201,7 +225,7 @@ static void updateHome() {
   for (int i = 0; i < 2; i++) {
     int x = TILE_X[i], y = TILE_Y[0];
     float t = V(i ? "gpu_temp" : "cpu_temp"), u = V(i ? "gpu_usage" : "cpu_usage");
-    tilePct(i, u, 46, 46);
+    tilePct(i, u);
     bigVal(x + 9, y + 50, 84, num(a, sizeof a, t, "%.0f"), "C", tempColor(t), !isnan(t), cardC);
     if (i) num(a, sizeof a, V("gpu_mhz"), "%.0f MHz");
     else   num(a, sizeof a, V("cpu_mhz") / 1000.0f, "%.1f GHz");
@@ -230,7 +254,7 @@ static void updateHome() {
   {
     int x = TILE_X[0], y = TILE_Y[1];
     float used = V("mem_used"), tot = V("mem_total"), pc = tot > 0 ? 100.0f * used / tot : NAN;
-    tilePct(3, pc, 46, 46);
+    tilePct(3, pc);
     bytesNum(a, sizeof a, &unit, used);
     bigVal(x + 9, y + 50, 84, a, unit, TEXT, false, cardC);
     gib(b, sizeof b, tot, "of %.1f GB");
@@ -238,18 +262,17 @@ static void updateHome() {
     bar(x + 8, y + 82, 84, 6, pc, ACC[A_RAM], TRACK);
   }
 
-  // ---- VRAM tile (with GTT, where models and games actually land)
+  // ---- VRAM tile: dedicated + GTT, the number the overlay shows
   {
     int x = TILE_X[1], y = TILE_Y[1];
-    float vu = V("gpu_vram_used"), vt = V("gpu_vram_total"), gu = V("gpu_gtt_used"), gt = V("gpu_gtt_total");
-    float vp = vt > 0 ? 100.0f * vu / vt : NAN, gp = gt > 0 ? 100.0f * gu / gt : NAN;
-    tilePct(4, vp, 54, 38);
-    bytesNum(a, sizeof a, &unit, vu);
+    float vu = V("gpu_vram_used"), gu = V("gpu_gtt_used"), used = gpuMemUsed(), tot = gpuMemTotal();
+    float pc = tot > 0 ? 100.0f * used / tot : NAN;
+    tilePct(4, pc);
+    bytesNum(a, sizeof a, &unit, used);
     bigVal(x + 9, y + 50, 84, a, unit, TEXT, false, cardC);
-    gib(b, sizeof b, gu, "GTT %.1f GB");
+    gib(b, sizeof b, tot, "of %.1f GB");
     txt(F_SMALL, b, x + 9, y + 74, 84, AL_L, DIM, cardC);
-    bar(x + 8, y + 79, 84, 5, vp, ACC[A_VRAM], TRACK);
-    bar(x + 8, y + 87, 84, 5, gp, ACC[A_GTT], TRACK);
+    stackBar(x + 8, y + 82, 84, 6, tot > 0 ? 100.0f * nz(vu) / tot : NAN, tot > 0 ? 100.0f * nz(gu) / tot : NAN, ACC[A_VRAM], ACC[A_GTT], TRACK);
   }
 
   // ---- ACTIVITY tile: game / local model / idle
@@ -294,7 +317,7 @@ static const Metric M_GPU[] = {
 };
 static const Metric M_MEM[] = {
   {"RAM",  "ram_pct",  "", A_RAM,  0, 100},
-  {"VRAM", "vram_pct", "", A_VRAM, 0, 100},
+  {"VRAM", "gpumem_pct", "", A_VRAM, 0, 100},
   {"GTT",  "gtt_pct",  "", A_GTT,  0, 100},
 };
 
@@ -304,7 +327,7 @@ static const Metric *metricsOf(Page p, int *n) {
   *n = 3; return M_MEM;
 }
 
-static const int CHIP_Y = 28, CHIP_H = 44, RANGE_Y = 76, GRAPH_Y = 98;
+static const int CHIP_Y = 28, CHIP_H = 46, RANGE_Y = 78, GRAPH_Y = 100;
 static int chipW(int n) { int gap = n == 4 ? 4 : 6; return (312 - (n - 1) * gap) / n; }
 static int chipX(int i, int n) { int gap = n == 4 ? 4 : 6; return 4 + i * (chipW(n) + gap); }
 
@@ -319,7 +342,7 @@ static void drawDetailStatic() {
     tft.setFont(F_SMALL.f);
     tft.setTextColor(sel ? ACC[m[i].acc] : DIM);
     tft.setTextDatum(lgfx::textdatum_t::baseline_left);
-    tft.drawString(m[i].label, x + 8, CHIP_Y + 12);
+    tft.drawString(m[i].label, x + 8, CHIP_Y + 11);
   }
   for (int i = 0; i < 3; i++) {                  // range buttons
     int x = 196 + i * 40;
@@ -350,7 +373,7 @@ static void chipValue(Page p, int idx, char *numBuf, size_t n, const char **unit
     else if (idx == 2) { num(numBuf, n, V("gpu_mhz"), "%.0f"); *unit = "MHz"; }
     else { num(numBuf, n, V("gpu_power_w"), "%.0f"); *unit = "W"; }
   } else {
-    float v = idx == 0 ? V("mem_used") : idx == 1 ? V("gpu_vram_used") : V("gpu_gtt_used");
+    float v = idx == 0 ? V("mem_used") : idx == 1 ? gpuMemUsed() : V("gpu_gtt_used");
     bytesNum(numBuf, n, unit, v);
   }
 }
@@ -381,19 +404,19 @@ static void drawDetailGraph(const Metric &m) {
   float lo, hi;
   if (m.kind == 0) { lo = 0; hi = 100; }
   else autoRange(hh->v, hh->n, m.kind == 2, m.minSpan, &lo, &hi);
-  graphDraw(gSpr, hh->v, hh->n, RANGE_N[gRange], lo, hi, ACC[m.acc], ACCD[m.acc], cardC, true);
+  graphDraw(gSpr, hh->v, hh->n, RANGE_N[gRange], lo, hi, ACC[m.acc], ACCD[m.acc], cardC, true, 30);
   char b[16];
   gSpr.setFont(F_SMALL.f);
   gSpr.setTextColor(DIM);
   gSpr.setTextDatum(lgfx::textdatum_t::top_left);
-  snprintf(b, sizeof b, "%.0f", hi); gSpr.drawString(b, 5, 3);
+  snprintf(b, sizeof b, "%.0f", hi); gSpr.drawString(b, 4, 3);
   gSpr.setTextDatum(lgfx::textdatum_t::baseline_left);
-  snprintf(b, sizeof b, "%.0f", lo); gSpr.drawString(b, 5, gSpr.height() - 4);
+  snprintf(b, sizeof b, "%.0f", lo); gSpr.drawString(b, 4, gSpr.height() - 4);
   gSpr.pushSprite(4, GRAPH_Y);
 }
 
 static void factPair(int row, const char *l1, const char *v1, const char *l2, const char *v2) {
-  int base = 184 + row * 18;
+  int base = 187 + row * 18;
   txt(F_SMALL, l1, 8,   base, 70, AL_L, DIM,  BG);
   txt(F_SMALL, v1, 80,  base, 72, AL_R, TEXT, BG);
   txt(F_SMALL, l2, 168, base, 70, AL_L, DIM,  BG);
@@ -409,7 +432,7 @@ static void updateDetail() {
     int x = chipX(i, n);
     chipValue(gPage, i, a, sizeof a, &unit, &deg);
     uint16_t col = (gPage != PG_MEM && i == 0) ? tempColor(V(gPage == PG_CPU ? "cpu_temp" : "gpu_temp")) : TEXT;
-    bigVal(x + 8, CHIP_Y + 38, chipW(n) - 12, a, unit, col, deg, i == gMetric ? CARD2 : cardC, 3);
+    bigVal(x + 8, CHIP_Y + 41, chipW(n) - 12, a, unit, col, deg, i == gMetric ? CARD2 : cardC, 3);
   }
   drawDetailGraph(m[gMetric]);
 
@@ -419,7 +442,7 @@ static void updateDetail() {
       int bw = (312 - (cores - 1) * 4) / cores;
       for (int i = 0; i < cores; i++) {
         char k[12]; snprintf(k, sizeof k, "core%d", i);
-        vbar(4 + i * (bw + 4), 166, bw, 36, VX(k), ACC[A_CPU]);
+        vbar(4 + i * (bw + 4), 169, bw, 34, VX(k), ACC[A_CPU]);
       }
     }
     char line[64];
@@ -435,15 +458,17 @@ static void updateDetail() {
     factPair(1, "vddgfx", num(v1, sizeof v1, VX("vddgfx_mv"), "%.0f mV"), "vddnb", num(v2, sizeof v2, VX("vddnb_mv"), "%.0f mV"));
     factPair(2, "fan", num(v1, sizeof v1, V("board_fan_rpm"), "%.0f rpm"), "fan pwm", num(v2, sizeof v2, V("board_fan_pwm"), "%.0f %%"));
   } else {
+    float vu = V("gpu_vram_used"), gu = V("gpu_gtt_used"), gmt = gpuMemTotal();
     struct R { const char *name; float used, total; Acc acc; } rows[3] = {
       {"RAM",  V("mem_used"), V("mem_total"), A_RAM},
-      {"VRAM", V("gpu_vram_used"), V("gpu_vram_total"), A_VRAM},
-      {"GTT",  V("gpu_gtt_used"), V("gpu_gtt_total"), A_GTT}};
+      {"VRAM", gpuMemUsed(), gmt, A_VRAM},
+      {"GTT",  gu, V("gpu_gtt_total"), A_GTT}};
     for (int r = 0; r < 3; r++) {
-      int base = 182 + r * 16;
+      int base = 185 + r * 16;
       float pc = rows[r].total > 0 ? 100.0f * rows[r].used / rows[r].total : NAN;
       txt(F_SMALL, rows[r].name, 8, base, 42, AL_L, DIM, BG);
-      bar(54, base - 8, 180, 9, pc, ACC[rows[r].acc], TRACK);
+      if (r == 1) stackBar(54, base - 8, 168, 9, gmt > 0 ? 100.0f * nz(vu) / gmt : NAN, gmt > 0 ? 100.0f * nz(gu) / gmt : NAN, ACC[A_VRAM], ACC[A_GTT], TRACK);
+      else        bar(54, base - 8, 168, 9, pc, ACC[rows[r].acc], TRACK);
       char u[16], t[16];
       gib(u, sizeof u, rows[r].used, "%.1f"); gib(t, sizeof t, rows[r].total, "%.1fG");
       snprintf(b, sizeof b, "%s/%s", u, t);
@@ -454,9 +479,9 @@ static void updateDetail() {
     float tv = VX("top1_val");
     if (isnan(tv)) strlcpy(top, "-", sizeof top); else snprintf(top, sizeof top, "%.1fG", tv / 1073741824.0f);
     char line[72];
-    snprintf(line, sizeof line, "cache %s  swap %s  -  %s %s", c, sw, kvS(curX, "top1_name", "-"), top);
+    snprintf(line, sizeof line, "cache %s swap %s  %s %s", c, sw, kvS(curX, "top1_name", "-"), top);
     fitText(line, F_SMALL, 308);
-    txt(F_SMALL, line, 8, 231, 308, AL_L, DIM, BG);
+    txt(F_SMALL, line, 8, 234, 308, AL_L, DIM, BG);
   }
 }
 
@@ -493,7 +518,7 @@ static void drawThermStatic() {
   tft.drawString("FAN", 12, y + 19);
   tft.setFont(F_SMALL.f);
   tft.setTextColor(FAINT);
-  tft.drawString("pk = peak since the stats service started", 8, 223);
+  tft.drawString("pk = peak since the stats service started", 8, 221);
 }
 
 static void updateTherm() {
@@ -504,7 +529,7 @@ static void updateTherm() {
     bool wired = !isnan(t) && t > 1;
     float eff = t - T_ROWS[i].off;
     uint16_t col = !wired ? FAINT : eff < TEMP_LEVELS[0] ? GREEN : eff < TEMP_LEVELS[1] ? AMBER : RED;
-    bar(90, y + 9, 112, 10, wired ? (t - 20) / 80.0f * 100.0f : 0, col, TRACK);
+    bar(98, y + 9, 104, 10, wired ? (t - 20) / 80.0f * 100.0f : 0, col, TRACK);
     txt(F_MID, wired ? num(a, sizeof a, t, "%.0f") : "--", 204, y + 22, 40, AL_R, wired ? TEXT : FAINT, cardC);
     float pk = V(T_ROWS[i].peak);
     txt(F_SMALL, isnan(pk) ? "" : num(a, sizeof a, pk, "pk %.0f"), 268, y + 18, 44, AL_R, DIM, cardC);
@@ -512,7 +537,7 @@ static void updateTherm() {
   int y = tRowY(5);
   float rpm = V("board_fan_rpm"), pwm = V("board_fan_pwm");
   if (isnan(pwm)) snprintf(a, sizeof a, "%.0f rpm", rpm); else snprintf(a, sizeof a, "%.0f rpm   pwm %.0f%%", rpm, pwm);
-  txt(F_TEXT, a, 90, y + 20, 218, AL_L, TEXT, cardC);
+  txt(F_TEXT, a, 98, y + 20, 210, AL_L, TEXT, cardC);
 }
 
 // ================================================================ AI (ollama)

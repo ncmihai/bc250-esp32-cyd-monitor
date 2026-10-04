@@ -24,7 +24,7 @@ static void fmtOffline(char *out, size_t n, uint32_t secs, bool preview) {
 }
 
 // ================================================================ DVD logo
-static const int DV_W = 118, DV_H = 50, DV_M = 4;          // logo box and the margin that erases its own trail
+static const int DV_W = 118, DV_H = 54, DV_M = 4;          // logo box and the margin that erases its own trail
 static struct { int x, y, vx, vy, ci; uint32_t flashUntil; } dvd;
 
 static uint16_t dvdColor(int i) {
@@ -70,7 +70,7 @@ static void dvdStep(uint32_t now, uint32_t offlineSecs, bool preview) {
   else fmtOffline(b, sizeof b, offlineSecs, preview);
   aSpr.setFont(F_SMALL.f);
   aSpr.setTextColor(flash ? TEXT : DIM);
-  aSpr.drawString(b, DV_M + DV_W / 2, DV_M + 45);
+  aSpr.drawString(b, DV_M + DV_W / 2, DV_M + 46);
   aSpr.pushSprite(dvd.x - DV_M, dvd.y - DV_M);
 }
 

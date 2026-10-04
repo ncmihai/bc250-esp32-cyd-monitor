@@ -12,32 +12,29 @@ red before things get hot, and a screen saver (bouncing DVD logo, XP pipes…) f
 Built for the **AMD BC-250** (the PS5-APU mining board that became a tiny Linux gaming/LLM box), but the server only
 reads standard Linux interfaces, so it works on most machines - see [Does it only work on a BC-250?](#does-it-only-work-on-a-bc-250).
 
-```
-┌─────────────────────────────────────────┐
-│ ● my-pc                       up 1d 08h │
-│ ┌──────────┐ ┌──────────┐ ┌──────────┐  │
-│ │CPU   21% │ │GPU  100% │ │POWER     │  │
-│ │ 69°C     │ │ 67°C     │ │ 124 W    │  │
-│ │ 3.5 GHz  │ │ 1960 MHz │ │ fan 1458 │  │
-│ │▓▓░░░░░░░ │ │▓▓▓▓▓▓▓▓▓ │ │ ~~~/\~~~ │  │
-│ └──────────┘ └──────────┘ └──────────┘  │
-│ ┌──────────┐ ┌──────────┐ ┌──────────┐  │
-│ │RAM   58% │ │VRAM  93% │ │GAME      │  │
-│ │ 8.6 GB   │ │ 476 MB   │ │ Layersof │  │
-│ │ of 14.8  │ │ GTT 2.9  │ │ Fear2    │  │
-│ │▓▓▓▓░░░░░ │ │▓▓▓▓▓▓▓▓▓ │ │ GPU 100% │  │
-│ └──────────┘ └──────────┘ └──────────┘  │
-│               ● ○ ○ ○                   │
-└─────────────────────────────────────────┘
-```
-<!-- Add your own photos here, e.g. docs/home.jpg, docs/cpu.jpg, docs/thermals.jpg, docs/away.jpg -->
+<p align="center">
+  <img src="docs/home.png" width="48%" alt="Home">
+  <img src="docs/cpu.png" width="48%" alt="CPU details with graph and per-core bars">
+</p>
+<p align="center">
+  <img src="docs/gpu.png" width="48%" alt="GPU details">
+  <img src="docs/memory.png" width="48%" alt="Memory details">
+</p>
+<p align="center">
+  <img src="docs/thermals.png" width="48%" alt="Thermals">
+  <img src="docs/ai.png" width="48%" alt="AI page (ollama)">
+</p>
+
+<sub>All screenshots are taken from the device itself, see [Screenshots](#-screenshots-from-the-device).</sub>
 
 ## ✨ Features
 
-- **Home page** with six live tiles: CPU, GPU, power (with a mini graph), RAM, VRAM + GTT, and an **Activity** tile that
+- **Home page** with six live tiles: CPU, GPU, power (with a mini graph), RAM, VRAM, and an **Activity** tile that
   says *GAME* (and which one), *LLM* (and which model, via [ollama](https://ollama.com)) or *IDLE*.
 - **Detail pages** (tap a tile): CPU (per-core bars, load, top process), GPU (clocks, voltages, DPM level, fan),
-  Memory (RAM / VRAM / GTT, cache, swap). Each has switchable **1 min / 10 min / 1 h graphs**.
+  Memory (RAM / VRAM / GTT, cache, swap). **VRAM** is the dedicated slice plus GTT (system RAM the GPU
+  uses), the same figure MangoHud shows; the sizes are read live from the kernel, so a different BIOS carve-out or
+  `amdgpu.gttsize` is picked up automatically. Each has switchable **1 min / 10 min / 1 h graphs**.
 - **Thermals page**: every sensor with a bar, the peak since the service started, fan RPM and PWM.
 - **AI page**: the model loaded in ollama right now and what's installed.
 - **Status LED + overheat alert**: the onboard RGB LED follows your hottest sensor; at 85 °C the whole screen
@@ -122,12 +119,29 @@ Hottest of CPU, GPU and VRM (NVMe counts 5 °C lower, because SSDs run hotter). 
 
 A 3 °C hysteresis stops the alert from flickering around a threshold.
 
+### Themes
+
+<p align="center">
+  <img src="docs/theme-default.png" width="19%" alt="Default">
+  <img src="docs/theme-cyan.png" width="19%" alt="Cyan">
+  <img src="docs/theme-turquoise.png" width="19%" alt="Turquoise">
+  <img src="docs/theme-pink.png" width="19%" alt="Pink">
+  <img src="docs/theme-navy.png" width="19%" alt="Navy">
+</p>
+
 ### Away mode
 
 After the host has been unreachable for 12 s (`AWAY_AFTER_MS`) the dashboard is replaced by a screen saver. Pick it in
 **Settings → Offline screen**: *DVD logo*, *Pipes*, *Starfield*, *Matrix*, *Cycle* (rotates every 75 s) or *Screen off*
 (tap to wake for 20 s). **Preview away** shows it for 25 s without switching anything off. A tap skips to the next one,
 and the dashboard comes back by itself when the host does.
+
+<p align="center">
+  <img src="docs/away-dvd.png" width="24%" alt="DVD logo">
+  <img src="docs/away-pipes.png" width="24%" alt="Pipes">
+  <img src="docs/away-stars.png" width="24%" alt="Starfield">
+  <img src="docs/away-matrix.png" width="24%" alt="Matrix">
+</p>
 
 ## 🐧 Does it only work on a BC-250?
 
@@ -192,8 +206,22 @@ act_kind=game
 act_name=LayersofFear2
 ```
 
-History metrics: `cpu_usage gpu_usage cpu_temp gpu_temp vrm_temp power_w cpu_mhz gpu_mhz ram_pct vram_pct gtt_pct rx_bps tx_bps fan_rpm`.
+History metrics (`vram_pct` is the dedicated slice only, `gpumem_pct` is dedicated + GTT): `cpu_usage gpu_usage cpu_temp gpu_temp vrm_temp power_w cpu_mhz gpu_mhz ram_pct vram_pct gtt_pct gpumem_pct rx_bps tx_bps fan_rpm`.
 </details>
+
+## 📸 Screenshots from the device
+
+The Arduino IDE can't capture the ESP32's screen, so the firmware can stream it instead: it reads the picture back from
+the display and sends it over USB, and `tools/screenshot.py` turns that into a PNG (about 15 seconds, no extra Python
+packages, macOS and Linux).
+
+```bash
+python3 tools/screenshot.py                              # saves screenshot.png
+python3 tools/screenshot.py -o cpu.png --scale 2 --send 4 # open page 4 (CPU) first, 640x480 output
+```
+
+Close the IDE's Serial Monitor first, only one program can use the port. `--send` types the debug keys listed below
+before capturing. A transfer that arrives damaged is detected (length check) and retried automatically.
 
 ## 🔧 Board notes and troubleshooting
 
@@ -207,7 +235,8 @@ History metrics: `cpu_usage gpu_usage cpu_temp gpu_temp vrm_temp power_w cpu_mhz
 - **"Waiting for the BC250" forever** → wrong `STATS_HOST`, a firewall, or the display and host are on different
   networks (guest WiFi, VLAN, AP isolation). The third line of that screen shows the exact error.
 - **Serial Monitor** (115200) prints a status line every 10 s. Debug keys: `0`-`6` jump to a page, `t` cycles themes,
-  `a` previews away mode, `n` the next animation, `o` pretends the host is offline.
+  `a` previews away mode, `n` the next animation, `o` pretends the host is offline, `h` shows a generic host name, `s` streams a screenshot
+  (see above). These keys change nothing that is saved.
 - Arduino defines `F()` and `TX` itself, so don't name your own variables that.
 
 ## 📁 Project layout
@@ -222,6 +251,8 @@ cyd_monitor/   the Arduino sketch
   data.h            networking task (runs on the second core) and data parsing
   ui.h              pages: home, details, thermals, AI, settings
   away.h            the screen savers
+tools/         screenshot.py (capture the display to a PNG)
+docs/          the screenshots used in this README
 ```
 
 ## 💡 Ideas not built yet

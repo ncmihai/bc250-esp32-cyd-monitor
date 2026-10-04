@@ -31,7 +31,7 @@ PAGE = os.sysconf("SC_PAGE_SIZE")
 OLLAMA = "http://127.0.0.1:11434"
 HIST_LEN = 3600  # one sample per second -> one hour
 HIST_KEYS = ["cpu_usage", "gpu_usage", "cpu_temp", "gpu_temp", "vrm_temp", "power_w", "cpu_mhz", "gpu_mhz",
-             "ram_pct", "vram_pct", "gtt_pct", "rx_bps", "tx_bps", "fan_rpm"]
+             "ram_pct", "vram_pct", "gtt_pct", "gpumem_pct", "rx_bps", "tx_bps", "fan_rpm"]
 SLOW_EVERY = 3  # seconds between process scans / ollama polls
 # hwmon chips: the first one found wins. AMD is what this was built on; the others are best-effort.
 CPU_CHIPS = ("k10temp", "zenpower", "coretemp")
@@ -357,6 +357,9 @@ class Sampler(threading.Thread):
         gtt_u, gtt_t = gpu_int("mem_info_gtt_used"), gpu_int("mem_info_gtt_total")
         mhz = cpu_max_mhz()
         load = read("/proc/loadavg").split()
+        # what MangoHud and friends call "VRAM": the small dedicated slice plus GTT (system RAM the GPU uses)
+        gm_total = (vram_t or 0) + (gtt_t or 0) or None
+        gm_used = (vram_u or 0) + (gtt_u or 0) if (vram_u is not None or gtt_u is not None) else None
 
         for k, v in (("cpu_temp", cpu_temp), ("gpu_temp", gpu_temp), ("vrm_temp", vrm), ("system_temp", sysT),
                      ("nvme_temp", nvme), ("power_w", gpu_w)):
@@ -373,6 +376,7 @@ class Sampler(threading.Thread):
             "gpu": {
                 "usage": gpu_int("gpu_busy_percent"), "temp": gpu_temp, "mhz": gpu_mhz, "power_w": gpu_w,
                 "vram_used": vram_u, "vram_total": vram_t, "gtt_used": gtt_u, "gtt_total": gtt_t,
+                "mem_used": gm_used, "mem_total": gm_total,
             },
             "mem": {"used": mem_used, "total": mem["MemTotal"]},
             "board": {
@@ -419,6 +423,7 @@ class Sampler(threading.Thread):
             "cpu_usage": usage.get("cpu"), "gpu_usage": gpu_int("gpu_busy_percent"), "cpu_temp": cpu_temp,
             "gpu_temp": gpu_temp, "vrm_temp": vrm, "power_w": gpu_w, "cpu_mhz": mhz, "gpu_mhz": gpu_mhz,
             "ram_pct": pct(mem_used, mem["MemTotal"]), "vram_pct": pct(vram_u, vram_t), "gtt_pct": pct(gtt_u, gtt_t),
+            "gpumem_pct": pct(gm_used, gm_total),
             "rx_bps": rx, "tx_bps": tx, "fan_rpm": top_fan[0],
         }
         with self.lock:

@@ -245,12 +245,12 @@ static void uptimeStr(char *out, size_t n, float s) {
 // ---------------------------------------------------------------- graphs (drawn into a sprite, then pushed)
 // v[0..n) are the newest n samples; N is how many samples fill the full width, so a short history sits at the right.
 static void graphDraw(lgfx::LGFX_Sprite &g, const float *v, int n, int N, float lo, float hi,
-                      uint16_t line, uint16_t fillC, uint16_t bg, bool grid) {
+                      uint16_t line, uint16_t fillC, uint16_t bg, bool grid, int lm = 0) {
   int w = g.width(), h = g.height();
   g.fillSprite(bg);
-  if (grid) for (int i = 1; i < 4; i++) g.drawFastHLine(0, h * i / 4, w, LINE);
+  if (grid) for (int i = 1; i < 4; i++) g.drawFastHLine(lm, h * i / 4, w - lm, LINE);
   if (n < 1 || !(hi > lo)) return;
-  float dx = N > 1 ? (float)(w - 4) / (N - 1) : 0;
+  float dx = N > 1 ? (float)(w - lm - 4) / (N - 1) : 0;
   int px = -1, py = 0;
   for (int i = 0; i < n; i++) {
     if (isnan(v[i])) { px = -1; continue; }

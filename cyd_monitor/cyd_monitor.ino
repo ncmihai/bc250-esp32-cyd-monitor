@@ -186,6 +186,22 @@ void setup() {
   gLastTouch = millis();
 }
 
+// ---------------------------------------------------------------- screenshot (tools/screenshot.py)
+// Streams the current picture over USB: "SHOT w h", w*h RGB565 pixels (little endian), "END". Takes about 13 s.
+static void screenshot() {
+  const int w = tft.width(), h = tft.height();
+  static lgfx::rgb565_t row[320];
+  esp_log_level_set("*", ESP_LOG_NONE);          // system / WiFi log lines would land in the middle of the picture
+  Serial.printf("\nSHOT %d %d\n", w, h);
+  for (int y = 0; y < h; y++) {
+    tft.readRect(0, y, w, 1, row);
+    Serial.write((const uint8_t *)row, w * 2);
+  }
+  Serial.print("\nEND\n");
+  Serial.flush();
+  esp_log_level_set("*", ESP_LOG_WARN);
+}
+
 static void logStatus(uint32_t now) {
   static uint32_t lastLog = 0;
   if (now - lastLog <= 10000) return;
@@ -209,6 +225,8 @@ void loop() {
   if (Serial.available()) {                      // debug: type 0-6 in the Serial Monitor to jump to a page, t to cycle themes
     char c = Serial.read();
     if (c >= '0' && c <= '6') { gMetric = 0; enterPage((Page)(c - '0')); }
+    if (c == 's') screenshot();
+    if (c == 'h') { gDebugHost = !gDebugHost; enterPage(gPage); }
     if (c == 'a') startPreview();
     if (c == 'o') { gDebugOffline = !gDebugOffline; Serial.printf("debug offline %d\n", (int)gDebugOffline); }
     if (c == 'n' && gAway) awayNext(millis());

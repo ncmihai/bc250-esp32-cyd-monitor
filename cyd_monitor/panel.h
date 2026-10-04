@@ -40,7 +40,7 @@ public:
       c.offset_x        = 0;
       c.offset_y        = 0;
       c.offset_rotation = 0;
-      c.readable        = false;
+      c.readable        = true;        // lets the screenshot command read the picture back
       c.invert          = TFT_INVERT;
       c.rgb_order       = TFT_RGB_ORDER;
       c.dlen_16bit      = false;
